@@ -59,7 +59,7 @@ as-is. Everything below is free and needs no credit card.
 Render's free plan wipes its disk on every redeploy and whenever the app
 sleeps, so saved drawings are kept in a free **Neon** Postgres database
 instead. (Locally, drawings are still plain `.kml` files in `data/kml/`.
-Either way they're real KML, and the **KML** button in the DRAWINGS panel
+Either way they're real KML, and the **Download** button in the DRAWINGS panel (or in a drawing's popup)
 downloads one for Google Earth or QGIS.)
 
 1. **Neon** (https://neon.com): sign up, create a project, and copy the

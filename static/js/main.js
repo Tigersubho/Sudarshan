@@ -595,7 +595,9 @@ function escapeHtml(text) {
 
 function bindDrawingPopup(layer, fileId, name) {
     layer.bindPopup(
-        `<strong>${escapeHtml(name)}</strong><br><span class="kml-popup-hint">Use the edit/delete tools to modify.</span>`
+        `<strong>${escapeHtml(name)}</strong><br>` +
+        `<a class="kml-popup-download" href="/api/kml/${encodeURIComponent(fileId)}?download=1">Download KML</a><br>` +
+        `<span class="kml-popup-hint">Use the edit/delete tools to modify.</span>`
     );
 }
 
@@ -654,7 +656,7 @@ function renderDrawingsList(items) {
                 <button class="drawing-btn" data-action="load" title="Load on map">Load</button>
                 <button class="drawing-btn" data-action="rename" title="Rename">Rename</button>
                 <a class="drawing-btn" data-action="download" title="Download .kml for Google Earth / QGIS"
-                   href="/api/kml/${encodeURIComponent(item.id)}?download=1">KML</a>
+                   href="/api/kml/${encodeURIComponent(item.id)}?download=1">Download</a>
                 <button class="drawing-btn drawing-btn-danger" data-action="delete" title="Delete">Delete</button>
             </div>
         `;
