@@ -21,7 +21,10 @@ import requests
 from flask import Flask, render_template, request, Response, jsonify
 from dotenv import load_dotenv
 
-from kml_utils import features_to_kml, is_safe_id, slugify, KML_EXTENSION
+from xml.sax.saxutils import escape
+
+from kml_utils import features_to_kml, is_safe_id, slugify
+from kml_store import make_store
 import toposheet
 
 load_dotenv()
@@ -68,12 +71,10 @@ def require_password():
 DATA_DIR = os.environ.get("DATA_DIR") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data"
 )
-KML_DIR = os.path.join(DATA_DIR, "kml")
-os.makedirs(KML_DIR, exist_ok=True)
 
-
-def _kml_path(file_id):
-    return os.path.join(KML_DIR, f"{file_id}{KML_EXTENSION}")
+# Local files by default; a Postgres table when DATABASE_URL is set (see
+# kml_store.py for why).
+store = make_store(DATA_DIR)
 
 
 def _extract_doc_name(xml_text, fallback):
@@ -565,30 +566,31 @@ def toposheets():
 # KML DRAWINGS API
 # --------------------------------------------------
 
+def _unique_id(base_id, ignore_id=None):
+    """base_id, or base_id-2, -3... if that id is already taken."""
+
+    candidate = base_id
+    counter = 1
+
+    while candidate != ignore_id and store.exists(candidate):
+        counter += 1
+        candidate = f"{base_id}-{counter}"
+
+    return candidate
+
+
 @app.route("/api/kml", methods=["GET"])
 def list_kml():
-    """List every saved drawing (polygon/line KML files)."""
+    """List every saved drawing (polygon/line KML documents)."""
 
-    items = []
-
-    for entry in os.listdir(KML_DIR):
-        if not entry.lower().endswith(KML_EXTENSION):
-            continue
-
-        file_id = entry[: -len(KML_EXTENSION)]
-        full_path = os.path.join(KML_DIR, entry)
-
-        try:
-            with open(full_path, "r", encoding="utf-8") as handle:
-                content = handle.read()
-        except OSError:
-            continue
-
-        items.append({
+    items = [
+        {
             "id": file_id,
             "name": _extract_doc_name(content, file_id),
-            "modified": os.path.getmtime(full_path)
-        })
+            "modified": modified
+        }
+        for file_id, content, modified in store.list_all()
+    ]
 
     items.sort(key=lambda item: item["modified"], reverse=True)
 
@@ -597,25 +599,29 @@ def list_kml():
 
 @app.route("/api/kml/<file_id>", methods=["GET"])
 def get_kml(file_id):
-    """Return the raw KML content of one saved drawing."""
+    """Return the raw KML of one saved drawing (?download=1 saves a file)."""
 
     if not is_safe_id(file_id):
         return jsonify({"error": "Invalid drawing id."}), 400
 
-    path = _kml_path(file_id)
+    content = store.get(file_id)
 
-    if not os.path.isfile(path):
+    if content is None:
         return jsonify({"error": "Drawing not found."}), 404
 
-    with open(path, "r", encoding="utf-8") as handle:
-        content = handle.read()
+    response = Response(content, mimetype="application/vnd.google-earth.kml+xml")
 
-    return Response(content, mimetype="application/vnd.google-earth.kml+xml")
+    if request.args.get("download"):
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{file_id}.kml"'
+        )
+
+    return response
 
 
 @app.route("/api/kml", methods=["POST"])
 def create_kml():
-    """Save a new drawing (features drawn in the browser) as a KML file."""
+    """Save a new drawing (features drawn in the browser) as KML."""
 
     payload = request.get_json(silent=True) or {}
 
@@ -625,18 +631,9 @@ def create_kml():
     if not isinstance(features, list) or not features:
         return jsonify({"error": "No drawn features were provided."}), 400
 
-    base_id = slugify(name)
-    file_id = base_id
-    counter = 1
+    file_id = _unique_id(slugify(name))
 
-    while os.path.isfile(_kml_path(file_id)):
-        counter += 1
-        file_id = f"{base_id}-{counter}"
-
-    kml_content = features_to_kml(name, features)
-
-    with open(_kml_path(file_id), "w", encoding="utf-8") as handle:
-        handle.write(kml_content)
+    store.put(file_id, features_to_kml(name, features))
 
     return jsonify({"id": file_id, "name": name}), 201
 
@@ -648,9 +645,9 @@ def update_kml(file_id):
     if not is_safe_id(file_id):
         return jsonify({"error": "Invalid drawing id."}), 400
 
-    path = _kml_path(file_id)
+    existing = store.get(file_id)
 
-    if not os.path.isfile(path):
+    if existing is None:
         return jsonify({"error": "Drawing not found."}), 404
 
     payload = request.get_json(silent=True) or {}
@@ -659,29 +656,25 @@ def update_kml(file_id):
     if not isinstance(features, list) or not features:
         return jsonify({"error": "No drawn features were provided."}), 400
 
-    with open(path, "r", encoding="utf-8") as handle:
-        existing_name = _extract_doc_name(handle.read(), file_id)
+    name = (
+        payload.get("name") or _extract_doc_name(existing, file_id) or file_id
+    ).strip()
 
-    name = (payload.get("name") or existing_name or file_id).strip()
-
-    kml_content = features_to_kml(name, features)
-
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(kml_content)
+    store.put(file_id, features_to_kml(name, features))
 
     return jsonify({"id": file_id, "name": name})
 
 
 @app.route("/api/kml/<file_id>/rename", methods=["POST"])
 def rename_kml(file_id):
-    """Rename a saved drawing (display name + underlying file id)."""
+    """Rename a saved drawing (display name + its id)."""
 
     if not is_safe_id(file_id):
         return jsonify({"error": "Invalid drawing id."}), 400
 
-    path = _kml_path(file_id)
+    content = store.get(file_id)
 
-    if not os.path.isfile(path):
+    if content is None:
         return jsonify({"error": "Drawing not found."}), 404
 
     payload = request.get_json(silent=True) or {}
@@ -690,30 +683,19 @@ def rename_kml(file_id):
     if not new_name:
         return jsonify({"error": "A new name is required."}), 400
 
-    with open(path, "r", encoding="utf-8") as handle:
-        content = handle.read()
+    # The Document <name> is the first <name> in the file. Both sides are
+    # XML-escaped so names like "Block A & B" can't corrupt the KML.
+    old_name = _extract_doc_name(content, file_id)
 
     content = content.replace(
-        f"<name>{_extract_doc_name(content, file_id)}</name>",
-        f"<name>{new_name}</name>",
+        f"<name>{escape(old_name)}</name>",
+        f"<name>{escape(new_name)}</name>",
         1
     )
 
-    new_base = slugify(new_name)
-    new_id = new_base
-    counter = 1
+    new_id = _unique_id(slugify(new_name), ignore_id=file_id)
 
-    while new_id != file_id and os.path.isfile(_kml_path(new_id)):
-        counter += 1
-        new_id = f"{new_base}-{counter}"
-
-    new_path = _kml_path(new_id)
-
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(content)
-
-    if new_path != path:
-        os.replace(path, new_path)
+    store.rename(file_id, new_id, content)
 
     return jsonify({"id": new_id, "name": new_name})
 
@@ -725,12 +707,8 @@ def delete_kml(file_id):
     if not is_safe_id(file_id):
         return jsonify({"error": "Invalid drawing id."}), 400
 
-    path = _kml_path(file_id)
-
-    if not os.path.isfile(path):
+    if not store.delete(file_id):
         return jsonify({"error": "Drawing not found."}), 404
-
-    os.remove(path)
 
     return jsonify({"status": "deleted", "id": file_id})
 

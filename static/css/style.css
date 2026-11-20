@@ -432,6 +432,12 @@ kbd {
     transition: 0.15s;
 }
 
+a.drawing-btn {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+}
+
 .drawing-btn:hover {
     background: #303b47;
     border-color: #d6a94b;

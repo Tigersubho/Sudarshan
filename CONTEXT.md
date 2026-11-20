@@ -112,13 +112,20 @@ QGIS, etc.), not locked into a database.
    so Python uses the Windows certificate store. Don't remove it, and
    don't "fix" SSL errors by disabling verification.
 3b. **Deployment prep (2026-11-20).** Not deployed yet. Target is
-   Render (see README). Netlify was ruled out: no long-running
-   server, no persistent disk. Added `render.yaml`, `gunicorn`,
-   `/healthz`, env-based `DATA_DIR`/`PORT`/`FLASK_DEBUG`, and an
-   optional HTTP Basic login (`APP_USERNAME`/`APP_PASSWORD`; off when
-   unset, so local dev is unchanged). The project folder was not a Git
-   repo at this point, and Render deploys from one. The KML store is
-   plain files, so on Render it needs the paid persistent disk.
+   Render's **free** plan plus a free **Neon** Postgres (user wants no
+   cost). Netlify was ruled out: no long-running server. Render free has
+   no persistent disk, so `kml_store.py` stores drawings in Postgres when
+   `DATABASE_URL` is set and in `data/kml/*.kml` files otherwise (same
+   interface, same KML content). Also added: `render.yaml`, gunicorn
+   (1 worker + 4 threads for 512 MB RAM), `/healthz`, env-based
+   `DATA_DIR`/`PORT`/`FLASK_DEBUG`, and an optional HTTP Basic login
+   (`APP_USERNAME`/`APP_PASSWORD`; off when unset). Also fixed: rename
+   now XML-escapes names (names with `&`/`<` used to corrupt the KML),
+   and drawing names are HTML-escaped in the panel and popups.
+   **Testing gap:** the Postgres store was only run against an in-memory
+   SQLite stand-in for `psycopg` (no Postgres server could be started in
+   the dev session), so the first real Neon run is the first check of
+   the SQL. The file store was tested for real.
 
 4. **Autozoom fix (2026-11-20, revised same day)**: originally only
    `S1_GRD_VV_VH` had a `minZoom`, so other WMS layers would come back

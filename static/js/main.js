@@ -583,9 +583,19 @@ map.on(L.Draw.Event.DELETED, (event) => {
     });
 });
 
+// Drawing names are user-typed, so never put them into HTML unescaped.
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 function bindDrawingPopup(layer, fileId, name) {
     layer.bindPopup(
-        `<strong>${name}</strong><br><span class="kml-popup-hint">Use the edit/delete tools to modify.</span>`
+        `<strong>${escapeHtml(name)}</strong><br><span class="kml-popup-hint">Use the edit/delete tools to modify.</span>`
     );
 }
 
@@ -639,10 +649,12 @@ function renderDrawingsList(items) {
         row.className = "drawing-row";
 
         row.innerHTML = `
-            <span class="drawing-name" title="${item.name}">${item.name}</span>
+            <span class="drawing-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
             <div class="drawing-actions">
                 <button class="drawing-btn" data-action="load" title="Load on map">Load</button>
                 <button class="drawing-btn" data-action="rename" title="Rename">Rename</button>
+                <a class="drawing-btn" data-action="download" title="Download .kml for Google Earth / QGIS"
+                   href="/api/kml/${encodeURIComponent(item.id)}?download=1">KML</a>
                 <button class="drawing-btn drawing-btn-danger" data-action="delete" title="Delete">Delete</button>
             </div>
         `;

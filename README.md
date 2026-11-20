@@ -50,33 +50,40 @@ The first time you turn on the toposheet grid, the server downloads the
 sheet index (~1 MB) from GitHub and caches it in `data/toposheet/`.
 After that it works offline.
 
-## Deploying to Render
+## Deploying for free (Render + Neon)
 
 Netlify won't work for this app: it hosts static sites and short
-serverless functions, not a long-running Flask server with files on disk.
-Render runs it as-is.
+serverless functions, not a long-running Flask server. Render runs it
+as-is. Everything below is free and needs no credit card.
 
-1. Put the project in a Git repo and push it to GitHub. `.env`, `venv/`
-   and `data/toposheet/` are git-ignored, so no secrets are uploaded.
-2. In Render: **New → Blueprint**, pick the repo. It reads
-   [render.yaml](render.yaml) and asks for the secret values:
-   `SENTINEL_CLIENT_ID`, `SENTINEL_CLIENT_SECRET`,
-   `SENTINEL_INSTANCE_ID` and `APP_PASSWORD`.
-3. Open the Render URL. The browser asks for a login: username
-   `aorvis` (or whatever `APP_USERNAME` is set to) and your
-   `APP_PASSWORD`.
+Render's free plan wipes its disk on every redeploy and whenever the app
+sleeps, so saved drawings are kept in a free **Neon** Postgres database
+instead. (Locally, drawings are still plain `.kml` files in `data/kml/`.
+Either way they're real KML, and the **KML** button in the DRAWINGS panel
+downloads one for Google Earth or QGIS.)
+
+1. **Neon** (https://neon.com): sign up, create a project, and copy the
+   connection string (starts with `postgresql://`). The app creates its
+   own table on first use.
+2. **GitHub**: push this folder to a private repo. `.env`, `venv/` and
+   saved drawings are git-ignored, so no secrets are uploaded.
+3. **Render** (https://render.com): **New → Blueprint**, pick the repo.
+   It reads [render.yaml](render.yaml) and asks for these values:
+   `SENTINEL_CLIENT_ID`, `SENTINEL_CLIENT_SECRET`, `SENTINEL_INSTANCE_ID`
+   (from your local `.env`), `APP_PASSWORD` (anything you choose, shared
+   with your office) and `DATABASE_URL` (the Neon string).
+4. Open the Render URL. Login: username `aorvis` (or `APP_USERNAME`) and
+   your `APP_PASSWORD`.
 
 Things to know:
 
-- **Saved drawings need a paid plan.** KML files are stored on disk, and
-  Render's free plan wipes the disk on every redeploy and spin-down.
-  `render.yaml` uses the Starter plan with a 1 GB persistent disk
-  mounted at `/var/data` (`DATA_DIR`). To try it free, delete the `disk:`
-  block and set `plan: free`, but expect drawings to disappear.
+- **Cold starts.** The free plan sleeps after ~15 minutes idle, and the
+  first visit afterwards takes about a minute. Neon also pauses when idle
+  and wakes in a second or two.
 - **Set `APP_PASSWORD`.** Without it anyone with the URL can use your
   Sentinel Hub quota and delete drawings.
-- **Free plan sleeps after ~15 minutes idle**, so the first request
-  afterwards takes about a minute.
+- Free tier limits: 750 instance hours/month on Render, 0.5 GB storage on
+  Neon. Both are far more than this app needs.
 - To run the production server locally (Linux/macOS/WSL):
   `gunicorn app:app --bind 0.0.0.0:8000`.
 
@@ -86,6 +93,7 @@ Things to know:
 app.py                 Flask app: pages, WMS proxy, KML drawings API,
                         toposheet grid API
 kml_utils.py            GeoJSON <-> KML helpers, safe filename handling
+kml_store.py            Where drawings live: local files, or Postgres if DATABASE_URL is set
 toposheet.py            SoI toposheet index: download, cache, bbox query
 templates/index.html    Main viewer page
 static/js/main.js       Map, layer switching, drawing tools, KML panel
