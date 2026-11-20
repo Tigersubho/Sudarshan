@@ -1,0 +1,12 @@
+
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Auto-downloaded toposheet index cache (re-fetched on demand)
+data/toposheet/
+
+# Saved drawings are user data, not code
+data/kml/*.kml

@@ -1,0 +1,259 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NE India Geo Viewer | AORVIS</title>
+
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"
+    >
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/style.css') }}"
+    >
+</head>
+
+<body>
+
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-icon">◆</div>
+            <div class="brand-text">
+                <h1>NE INDIA GEO VIEWER</h1>
+                <span>Geological & Remote Sensing Intelligence</span>
+            </div>
+        </div>
+
+        <div class="topbar-right">
+            <div class="active-layer">
+                <span class="status-dot"></span>
+                <span id="layerLabel">ESRI SATELLITE</span>
+            </div>
+
+            <button id="drawingsMenuButton" class="layer-menu-button">
+                <span>DRAWINGS</span>
+                <kbd>K</kbd>
+            </button>
+
+            <button id="layerMenuButton" class="layer-menu-button">
+                <span>LAYERS</span>
+                <kbd>J</kbd>
+            </button>
+        </div>
+    </header>
+
+    <main id="map"></main>
+
+    <section id="layerPanel" class="layer-panel">
+
+        <div class="panel-header">
+            <div>
+                <h2>MAP LAYERS</h2>
+                <p>Select one layer to visualize</p>
+            </div>
+
+            <button id="closeLayerPanel" class="close-button"
+                    aria-label="Close layer panel">
+                &times;
+            </button>
+        </div>
+
+        <div class="layer-list">
+
+            <div class="layer-group">
+                <div class="group-heading">BASE MAP</div>
+
+                <label class="layer-option">
+                    <input
+                        type="radio"
+                        name="mapLayer"
+                        value="satellite"
+                        checked
+                    >
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">Esri Satellite</span>
+                    <span class="layer-tag">BASE</span>
+                </label>
+            </div>
+
+            <div class="layer-group">
+                <div class="group-heading">SENTINEL-1 · C-BAND SAR</div>
+
+                <label class="layer-option">
+                    <input
+                        type="radio"
+                        name="mapLayer"
+                        value="S1_GRD_VV_VH"
+                    >
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">VV + VH Composite</span>
+                    <span class="layer-tag">SAR</span>
+                </label>
+
+                <div class="unavailable-option">
+                    <span class="unavailable-icon">—</span>
+                    <span class="layer-name">VV Only</span>
+                    <span class="layer-tag unavailable-tag">UNAVAILABLE</span>
+                </div>
+
+                <div class="unavailable-option">
+                    <span class="unavailable-icon">—</span>
+                    <span class="layer-name">VH Only</span>
+                    <span class="layer-tag unavailable-tag">UNAVAILABLE</span>
+                </div>
+            </div>
+
+            <div class="layer-group">
+                <div class="group-heading">SENTINEL-2 · SPECTRAL</div>
+
+                <label class="layer-option">
+                    <input type="radio" name="mapLayer" value="B08">
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">B08 · Near Infrared</span>
+                    <span class="layer-tag">NIR</span>
+                </label>
+
+                <label class="layer-option">
+                    <input type="radio" name="mapLayer" value="SWIR">
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">SWIR Visualization</span>
+                    <span class="layer-tag">SWIR</span>
+                </label>
+
+                <label class="layer-option">
+                    <input type="radio" name="mapLayer" value="B10">
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">B10 · Cirrus</span>
+                    <span class="layer-tag">BAND 10</span>
+                </label>
+
+                <label class="layer-option">
+                    <input type="radio" name="mapLayer" value="B11">
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">B11 · SWIR 1610 nm</span>
+                    <span class="layer-tag">BAND 11</span>
+                </label>
+
+                <label class="layer-option">
+                    <input type="radio" name="mapLayer" value="B12">
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">B12 · SWIR 2190 nm</span>
+                    <span class="layer-tag">BAND 12</span>
+                </label>
+            </div>
+
+            <div class="layer-group">
+                <div class="group-heading">GEOLOGICAL & ENVIRONMENTAL</div>
+
+                <label class="layer-option">
+                    <input type="radio" name="mapLayer" value="GEOLOGY">
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">Geology</span>
+                    <span class="layer-tag">GEO</span>
+                </label>
+
+                <label class="layer-option">
+                    <input type="radio" name="mapLayer" value="MOISTURE_INDEX">
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">Moisture Index</span>
+                    <span class="layer-tag">WATER</span>
+                </label>
+
+                <label class="layer-option">
+                    <input type="radio" name="mapLayer" value="PSRI_NIR">
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">PSRI · Near Infrared</span>
+                    <span class="layer-tag">VEG</span>
+                </label>
+            </div>
+
+            <div class="layer-group">
+                <div class="group-heading">L-BAND SAR</div>
+
+                <label class="layer-option">
+                    <input type="radio" name="mapLayer" value="L_BAND_PALSAR">
+                    <span class="radio-mark"></span>
+                    <span class="layer-name">Radar Data (L-Band) · ALOS PALSAR-2 2021</span>
+                    <span class="layer-tag">L-BAND</span>
+                </label>
+            </div>
+
+            <div class="layer-group">
+                <div class="group-heading">OVERLAYS · SHOWN ON TOP OF ANY LAYER</div>
+
+                <label class="layer-option">
+                    <input type="checkbox" id="toposheetToggle">
+                    <span class="check-mark"></span>
+                    <span class="layer-name">Toposheet Grid (Survey of India sheet no.)</span>
+                    <span class="layer-tag">SOI</span>
+                </label>
+
+                <label class="layer-option">
+                    <input type="checkbox" id="structureToggle">
+                    <span class="check-mark"></span>
+                    <span class="layer-name">Structure Map · faults &amp; thrusts (GSI 1:2M)</span>
+                    <span class="layer-tag">GSI</span>
+                </label>
+
+                <label class="layer-option">
+                    <input type="checkbox" id="lineamentToggle">
+                    <span class="check-mark"></span>
+                    <span class="layer-name">Lineament Map (Bhuvan 1:50K, not Mizoram)</span>
+                    <span class="layer-tag">NRSC</span>
+                </label>
+            </div>
+
+
+        </div>
+
+        <div class="panel-footer">
+            <span>PRESS <kbd>J</kbd> TO TOGGLE</span>
+            <span>PRESS <kbd>ESC</kbd> TO CLOSE</span>
+        </div>
+
+    </section>
+
+    <section id="drawingsPanel" class="layer-panel drawings-panel">
+
+        <div class="panel-header">
+            <div>
+                <h2>SAVED DRAWINGS</h2>
+                <p>Polygons & lines, stored as KML</p>
+            </div>
+
+            <button id="closeDrawingsPanel" class="close-button"
+                    aria-label="Close drawings panel">
+                &times;
+            </button>
+        </div>
+
+        <div id="drawingsList" class="drawings-list">
+            <div class="drawings-empty">No saved drawings yet. Draw a polygon or line on the map.</div>
+        </div>
+
+        <div class="panel-footer">
+            <span>DRAW WITH THE MAP TOOLBAR</span>
+            <span>PRESS <kbd>K</kbd> TO TOGGLE</span>
+        </div>
+
+    </section>
+
+    <div id="mapStatus" class="map-status">
+        Satellite imagery active
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+</body>
+</html>

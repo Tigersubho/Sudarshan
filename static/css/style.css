@@ -1,0 +1,480 @@
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    background: #0b0e12;
+    color: #e8edf2;
+    font-family: "Segoe UI", Arial, sans-serif;
+}
+
+/* TOP BAR */
+
+.topbar {
+    height: 66px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    background: #11161d;
+    border-bottom: 1px solid #29313b;
+    position: relative;
+    z-index: 1000;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+}
+
+.brand-icon {
+    color: #d6a94b;
+    font-size: 25px;
+}
+
+.brand-text h1 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+}
+
+.brand-text span {
+    display: block;
+    margin-top: 3px;
+    color: #8994a2;
+    font-size: 10px;
+    letter-spacing: 0.7px;
+}
+
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+}
+
+.active-layer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: #c7d0d9;
+}
+
+.status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #d6a94b;
+}
+
+.layer-menu-button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 14px;
+    background: #202832;
+    border: 1px solid #3a4653;
+    border-radius: 4px;
+    color: #f0f2f4;
+    cursor: pointer;
+    font-size: 11px;
+    letter-spacing: 1px;
+    transition: 0.2s;
+}
+
+.layer-menu-button:hover {
+    background: #303b47;
+    border-color: #d6a94b;
+}
+
+kbd {
+    padding: 3px 6px;
+    background: #10151b;
+    border: 1px solid #46515e;
+    border-radius: 3px;
+    color: #d6a94b;
+    font-size: 10px;
+}
+
+/* MAP */
+
+#map {
+    width: 100%;
+    height: calc(100vh - 66px);
+    background: #101820;
+    z-index: 1;
+}
+
+.leaflet-container {
+    background: #101820;
+}
+
+/* LAYER PANEL */
+
+.layer-panel {
+    position: absolute;
+    top: 78px;
+    right: 18px;
+    width: 340px;
+    max-height: calc(100vh - 105px);
+    display: none;
+    flex-direction: column;
+    background: #111820;
+    border: 1px solid #35414d;
+    border-radius: 6px;
+    box-shadow: 0 12px 35px rgba(0, 0, 0, 0.55);
+    z-index: 2000;
+    overflow: hidden;
+}
+
+.layer-panel.open {
+    display: flex;
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 17px 18px;
+    border-bottom: 1px solid #303a45;
+}
+
+.panel-header h2 {
+    font-size: 13px;
+    letter-spacing: 1.5px;
+}
+
+.panel-header p {
+    color: #8793a0;
+    font-size: 10px;
+    margin-top: 5px;
+}
+
+.close-button {
+    background: transparent;
+    border: none;
+    color: #9aa5b1;
+    font-size: 25px;
+    cursor: pointer;
+}
+
+.close-button:hover {
+    color: #ffffff;
+}
+
+.layer-list {
+    padding: 6px 0;
+    overflow-y: auto;
+}
+
+.layer-group {
+    padding: 10px 0;
+    border-bottom: 1px solid #27313b;
+}
+
+.group-heading {
+    padding: 5px 18px 9px;
+    color: #d6a94b;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.3px;
+}
+
+/* LAYER OPTIONS */
+
+.layer-option,
+.unavailable-option {
+    min-height: 39px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 18px;
+}
+
+.layer-option {
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.layer-option:hover {
+    background: #202a35;
+}
+
+.layer-option input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.radio-mark {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    border: 1px solid #65717e;
+    border-radius: 50%;
+    position: relative;
+}
+
+.layer-option input:checked + .radio-mark {
+    border-color: #d6a94b;
+}
+
+.layer-option input:checked + .radio-mark::after {
+    content: "";
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    top: 3px;
+    left: 3px;
+    border-radius: 50%;
+    background: #d6a94b;
+}
+
+/* Checkbox overlays (toposheet grid etc.) */
+
+.check-mark {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    border: 1px solid #65717e;
+    border-radius: 3px;
+    position: relative;
+}
+
+.layer-option input:checked + .check-mark {
+    border-color: #d6a94b;
+    background: #d6a94b;
+}
+
+.layer-option input:checked + .check-mark::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: solid #111820;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+/* The GSI structure map draws thin black lines, which vanish on the dark
+   satellite basemap. Invert them to white and add a dark halo. */
+.leaflet-structure-pane {
+    filter: invert(1) drop-shadow(0 0 1.5px #000);
+}
+
+/* Toposheet sheet-number labels */
+
+.toposheet-label {
+    background: transparent;
+    border: none;
+    text-align: center;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+.toposheet-label .sheet-no {
+    display: block;
+    color: #7fd8ff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-shadow:
+        0 0 3px #000, 0 0 3px #000, 1px 1px 2px #000;
+}
+
+.toposheet-label .sheet-osm {
+    display: block;
+    color: #d5ecf7;
+    font-size: 9px;
+    text-shadow: 0 0 3px #000, 1px 1px 2px #000;
+}
+
+.layer-name {
+    flex: 1;
+    font-size: 11px;
+    color: #d5dce4;
+}
+
+.layer-tag {
+    color: #91a0af;
+    font-size: 8px;
+    letter-spacing: 0.7px;
+}
+
+.unavailable-option {
+    opacity: 0.42;
+    cursor: not-allowed;
+}
+
+.unavailable-icon {
+    width: 15px;
+    text-align: center;
+    color: #8793a0;
+}
+
+.unavailable-tag {
+    color: #b28b62;
+    font-size: 8px;
+}
+
+/* PANEL FOOTER */
+
+.panel-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: #0d1319;
+    border-top: 1px solid #303a45;
+    color: #7e8a97;
+    font-size: 8px;
+    letter-spacing: 0.6px;
+}
+
+/* STATUS */
+
+.map-status {
+    position: absolute;
+    bottom: 18px;
+    left: 18px;
+    padding: 9px 13px;
+    background: rgba(15, 21, 28, 0.92);
+    border: 1px solid #35414d;
+    border-radius: 4px;
+    color: #cbd3dc;
+    font-size: 10px;
+    letter-spacing: 0.4px;
+    z-index: 500;
+    pointer-events: none;
+}
+
+/* SCROLLBAR */
+
+.layer-list::-webkit-scrollbar {
+    width: 5px;
+}
+
+.layer-list::-webkit-scrollbar-track {
+    background: #111820;
+}
+
+.layer-list::-webkit-scrollbar-thumb {
+    background: #46515e;
+    border-radius: 5px;
+}
+
+/* DRAWINGS PANEL */
+
+.drawings-panel {
+    width: 320px;
+}
+
+.drawings-list {
+    padding: 8px 0;
+    overflow-y: auto;
+    max-height: 420px;
+}
+
+.drawings-empty {
+    padding: 18px;
+    color: #8793a0;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.drawing-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 18px;
+    border-bottom: 1px solid #1c2329;
+}
+
+.drawing-row:hover {
+    background: #1a222b;
+}
+
+.drawing-name {
+    flex: 1;
+    font-size: 11px;
+    color: #d5dce4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.drawing-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.drawing-btn {
+    background: #202832;
+    border: 1px solid #3a4653;
+    color: #c7d0d9;
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.drawing-btn:hover {
+    background: #303b47;
+    border-color: #d6a94b;
+    color: #fff;
+}
+
+.drawing-btn-danger:hover {
+    border-color: #c25b4a;
+    color: #ff9a85;
+}
+
+.kml-popup-hint {
+    color: #8793a0;
+    font-size: 10px;
+}
+
+/* Leaflet.draw toolbar - keep the plugin's default white buttons/black
+   icons (readable), just like its own edit/delete buttons. */
+
+/* RESPONSIVE */
+
+@media (max-width: 600px) {
+    .topbar {
+        padding: 0 12px;
+    }
+
+    .brand-text h1 {
+        font-size: 11px;
+    }
+
+    .brand-text span {
+        font-size: 8px;
+    }
+
+    .active-layer {
+        display: none;
+    }
+
+    .layer-panel {
+        right: 10px;
+        left: 10px;
+        width: auto;
+        top: 76px;
+        max-height: calc(100vh - 95px);
+    }
+}

@@ -1,0 +1,32 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: aorvis-radar-viewer
+    runtime: python
+    # Persistent disks need a paid plan. On the free plan the disk block
+    # must be removed, and saved KML drawings are wiped on every redeploy
+    # and whenever the free instance spins down.
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 90
+    healthCheckPath: /healthz
+    disk:
+      name: aorvis-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.0
+      - key: DATA_DIR
+        value: /var/data
+      - key: FLASK_DEBUG
+        value: "0"
+      # Secrets: Render asks for these in the dashboard (never committed).
+      - key: SENTINEL_CLIENT_ID
+        sync: false
+      - key: SENTINEL_CLIENT_SECRET
+        sync: false
+      - key: SENTINEL_INSTANCE_ID
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
