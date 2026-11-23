@@ -156,3 +156,44 @@ QGIS, etc.), not locked into a database.
    Possible follow-ups: bulk export/import of KML, undo for deletes,
    and folder/grouping support if the number of saved drawings grows
    large.
+6. **Multi-layer zoom/loading fix (2026-11-23).** Symptom: radar +
+   lineament selected, zoom out → lineament failed; zoom back in →
+   lineament never returned and the radar status said loading failed.
+   Causes and fixes:
+   - Layers vanished silently below their `minZoom`. Now the map's
+     `minZoom` follows the highest `minZoom` among the layers that are on
+     (`setZoomFloor` in `main.js`); this also covers ticking an overlay
+     and `fitBounds` when loading a drawing.
+   - A failed overlay tile was returned as a transparent PNG cached for
+     1 h, so it stayed blank after Bhuvan recovered. Upstream failures
+     are now `502` + `Cache-Control: no-store` (`_tile_error`), and the
+     browser retries a failed tile twice (`watchTileLayer`).
+   - One shared status line: layers overwrote each other. Each layer now
+     owns a part of the status line (`setLayerStatus`).
+   - Tiles abandoned on zoom kept server threads busy for up to 60 s.
+     Upstream calls now share a pooled `requests.Session` with
+     `(5, 25)` s timeouts, and Render runs 8 threads.
+   - Lineament `minZoom` 6 → 8 (z6 tiles span a whole state at 1:50K).
+   - Also: token refresh is single-flight (lock); an expired L-band
+     search id is re-registered once, not once per tile.
+   Tested with real Leaflet 1.9.4 / Leaflet.draw 1.0.4 in headless
+   Chrome against simulated upstreams (no internet in the test box);
+   the Postgres SQL in `kml_store.py` was run against a real
+   PostgreSQL 16 server (through psql, not psycopg). Not tested against
+   the live Sentinel Hub / Bhuvan / BGS / Planetary Computer services.
+7. **Viewport watcher (2026-11-23).** Report: after zooming out and back
+   in, parts of the radar layer that had not loaded before stayed empty.
+   Tiles that failed (upstream timeout / rate limit) stayed failed until
+   the user moved the map. Now `checkViewport()` in `main.js` runs after
+   every move and every 8 s: it asks Leaflet to create any missing tile in
+   view (`layer._update()`) and re-requests failed ones (one request per
+   tile per check, so a rate-limited source isn't hammered). The status
+   line shows the share of the view loaded. Uses Leaflet's internal
+   `_tiles` / `_update`, fine for the pinned Leaflet 1.9.4; re-check if
+   Leaflet is upgraded. Considered and rejected: preloading all of NE India
+   before allowing interaction - it only covers one zoom level (each zoom
+   level needs its own tiles; NE India at zoom 12 alone is thousands of
+   tiles), so it can't make zoomed-in views complete.
+   Also: one-off drawing messages now stay visible for 4 s, and status
+   parts keep a fixed order.
+

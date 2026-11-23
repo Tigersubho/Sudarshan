@@ -1,8 +1,12 @@
 
+// Lowest zoom when no zoom-limited layer is switched on. While layers are
+// on, the floor rises to the highest minZoom among them (setZoomFloor).
+const BASE_MIN_ZOOM = 4;
+
 const map = L.map("map", {
     center: [26.2, 92.9],
     zoom: 6,
-    minZoom: 4,
+    minZoom: BASE_MIN_ZOOM,
     maxZoom: 18,
     zoomControl: true
 });
@@ -191,6 +195,186 @@ function updateStatus(message) {
     mapStatus.textContent = message;
 }
 
+// Each layer that is on owns one part of the status line, so layers no
+// longer overwrite each other's messages (last writer used to win). Parts
+// are always shown in the same order.
+const statusParts = new Map();
+const STATUS_ORDER = ["imagery", "structure", "lineament", "toposheet"];
+const NOTICE_MS = 4000;
+let noticeUntil = 0;
+
+function renderStatus() {
+    if (Date.now() < noticeUntil) return; // a notice is still showing
+
+    const text = STATUS_ORDER
+        .filter((key) => statusParts.has(key))
+        .map((key) => statusParts.get(key))
+        .join("  ·  ");
+
+    updateStatus(text || "Satellite imagery active");
+}
+
+function setLayerStatus(key, text) {
+    if (text) {
+        statusParts.set(key, text);
+    } else {
+        statusParts.delete(key);
+    }
+
+    renderStatus();
+}
+
+// One-off messages (drawing saved, loaded, deleted, errors) stay visible
+// for a few seconds before layer status takes the line back.
+function notify(message) {
+    updateStatus(message);
+    noticeUntil = Date.now() + NOTICE_MS;
+    setTimeout(renderStatus, NOTICE_MS + 50);
+}
+
+// --------------------------------------------------
+// ZOOM FLOOR
+// --------------------------------------------------
+
+// Leaflet draws nothing for a layer while the map is below that layer's
+// minZoom. Instead of letting selected layers silently vanish, the map
+// can't be zoomed out past the highest minZoom among the layers that are
+// on. Raising the floor above the current zoom zooms the map in, and
+// fitBounds() (loading a drawing) respects it too.
+const zoomFloors = new Map();
+
+function setZoomFloor(key, minZoom) {
+    if (minZoom) {
+        zoomFloors.set(key, minZoom);
+    } else {
+        zoomFloors.delete(key);
+    }
+
+    map.setMinZoom(Math.max(BASE_MIN_ZOOM, ...zoomFloors.values()));
+}
+
+// Leaflet ignores a zoom request made while a previous zoom is still
+// animating (e.g. ticking an overlay right after picking a radar layer),
+// which could leave the map below the floor. Re-check after every zoom.
+map.on("zoomend", () => {
+    if (map.getZoom() < map.getMinZoom()) {
+        map.setZoom(map.getMinZoom());
+    }
+});
+
+// --------------------------------------------------
+// TILE LOAD TRACKING + RETRY
+// --------------------------------------------------
+
+// A failed tile (upstream timeout, rate limit, 502) is retried a couple of
+// times right away; Leaflet itself never retries. After that the viewport
+// watcher below keeps re-checking it.
+const TILE_RETRIES = 2;
+const TILE_RETRY_DELAY_MS = 1500;
+const VIEWPORT_CHECK_MS = 8000;
+
+// Layers on the map that the viewport watcher looks after: layer -> report()
+const watchedLayers = new Map();
+
+function reloadTile(tile, tag) {
+    const url = new URL(tile.src);
+    url.searchParams.set("_retry", tag);
+    tile.src = url.toString();
+}
+
+// Tiles Leaflet counts as part of the current view. Uses Leaflet's
+// internal _tiles (stable across 1.x; the page pins Leaflet 1.9.4).
+function viewTiles(layer) {
+    return Object.values(layer._tiles || {}).filter((t) => t.current);
+}
+
+function viewCoverage(layer) {
+    const tiles = viewTiles(layer);
+    let shown = 0;
+    let failed = 0;
+
+    tiles.forEach((t) => {
+        if (t.el._failed) {
+            failed += 1;
+        } else if (t.loaded && t.el.complete && t.el.naturalWidth > 0) {
+            shown += 1;
+        }
+    });
+
+    return { total: tiles.length, shown, failed };
+}
+
+function watchTileLayer(layer, key, label) {
+    function report() {
+        if (!map.hasLayer(layer)) return;
+
+        const { total, shown, failed } = viewCoverage(layer);
+        const percent = total ? Math.floor((100 * shown) / total) : 100;
+
+        if (shown === total) {
+            setLayerStatus(key, `${label} active`);
+        } else if (total - shown - failed > 0) {
+            setLayerStatus(key, `${label}: loading ${percent}% of view...`);
+        } else {
+            setLayerStatus(key, `${label}: ${percent}% of view loaded, re-checking ${failed} missing tile(s)...`);
+        }
+    }
+
+    layer.on("loading tileload load", report);
+
+    layer.on("tileerror", (event) => {
+        const tile = event.tile;
+        const tries = tile._retries || 0;
+
+        if (tries >= TILE_RETRIES) {
+            tile._failed = true; // the viewport watcher takes over
+            report();
+            return;
+        }
+
+        tile._retries = tries + 1;
+        report();
+
+        setTimeout(() => {
+            // Skip tiles Leaflet dropped meanwhile (zoomed or panned away).
+            if (map.hasLayer(layer) && tile.isConnected) {
+                reloadTile(tile, tile._retries);
+            }
+        }, TILE_RETRY_DELAY_MS * tile._retries);
+    });
+
+    layer.on("add", () => watchedLayers.set(layer, report));
+    layer.on("remove", () => {
+        watchedLayers.delete(layer);
+        setLayerStatus(key, null);
+    });
+}
+
+// Viewport watcher: after every pan/zoom and every few seconds, check that
+// each tile of each layer in the current view is really shown, and request
+// again any that are missing. One request per missing tile per check, so a
+// rate-limited source isn't hammered.
+function checkViewport() {
+    if (document.hidden || map._animatingZoom) return;
+
+    watchedLayers.forEach((report, layer) => {
+        layer._update(); // adds any tile in view Leaflet hasn't created
+
+        viewTiles(layer).forEach((t) => {
+            if (t.el._failed && t.el.isConnected) {
+                t.el._failed = false;
+                t.el._retries = TILE_RETRIES; // a failure goes straight back to the watcher
+                reloadTile(t.el, `v${Date.now()}`);
+            }
+        });
+
+        report();
+    });
+}
+
+setInterval(checkViewport, VIEWPORT_CHECK_MS);
+map.on("moveend", () => setTimeout(checkViewport, 300));
+
 // --------------------------------------------------
 // LAYER SELECTION
 // --------------------------------------------------
@@ -201,6 +385,7 @@ function removeActiveOverlay() {
     }
 
     activeOverlay = null;
+    setZoomFloor("imagery", null);
 }
 
 function selectLayer(layerId) {
@@ -211,7 +396,7 @@ function selectLayer(layerId) {
     // Satellite remains the permanent basemap
     if (layerId === "satellite") {
         layerLabel.textContent = "ESRI SATELLITE";
-        updateStatus("Satellite imagery active");
+        setLayerStatus("imagery", null);
         return;
     }
 
@@ -222,10 +407,9 @@ function selectLayer(layerId) {
         return;
     }
 
-    // Zoom in when required for Sentinel-1
-    if (config.minZoom && map.getZoom() < config.minZoom) {
-        map.setZoom(config.minZoom);
-    }
+    // Zooms in if needed, and keeps the map from zooming out past this
+    // layer's minZoom while it is selected.
+    setZoomFloor("imagery", config.minZoom);
 
     // Create selected overlay: plain XYZ tiles for layers with a tileUrl
     // (L-band), otherwise a Sentinel Hub WMS layer.
@@ -250,16 +434,9 @@ function selectLayer(layerId) {
         });
     }
 
-    updateStatus(`Loading ${config.label}...`);
     layerLabel.textContent = config.label;
-
-    activeOverlay.on("load", () => {
-        updateStatus(`${config.label} active`);
-    });
-
-    activeOverlay.on("tileerror", () => {
-        updateStatus(`Error loading ${config.label}. Check layer configuration.`);
-    });
+    watchTileLayer(activeOverlay, "imagery", config.label);
+    setLayerStatus("imagery", `Loading ${config.label}...`);
 
     activeOverlay.addTo(map);
 }
@@ -363,7 +540,7 @@ function refreshToposheets() {
         .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
         .then(({ ok, data }) => {
             if (!ok) {
-                updateStatus(data.error || "Could not load the toposheet grid.");
+                setLayerStatus("toposheet", data.error || "Could not load the toposheet grid.");
                 return;
             }
 
@@ -375,11 +552,11 @@ function refreshToposheets() {
                 "50k": "1:50,000"
             }[scale];
 
-            updateStatus(`Toposheet grid · ${scaleLabel} sheets (zoom in for finer sheets)`);
+            setLayerStatus("toposheet", `Toposheet grid · ${scaleLabel} sheets`);
         })
         .catch((error) => {
             if (error.name !== "AbortError") {
-                updateStatus("Could not load the toposheet grid.");
+                setLayerStatus("toposheet", "Could not load the toposheet grid.");
             }
         });
 }
@@ -392,12 +569,13 @@ map.on("moveend", () => {
 toposheetToggle.addEventListener("change", function () {
     if (this.checked) {
         toposheetLayer.addTo(map);
-        updateStatus("Loading toposheet grid...");
+        setLayerStatus("toposheet", "Loading toposheet grid...");
         refreshToposheets();
     } else {
         if (toposheetRequest) toposheetRequest.abort();
         toposheetLayer.clearLayers();
         map.removeLayer(toposheetLayer);
+        setLayerStatus("toposheet", null);
     }
 });
 
@@ -427,7 +605,10 @@ const overlayConfigs = {
         toggleId: "lineamentToggle",
         pane: "lineamentPane",
         label: "Lineament map (Bhuvan 1:50K; Mizoram not covered)",
-        minZoom: 6,
+        // 1:50K data: below zoom 8 one tile spans ~3-6° (a whole state),
+        // which Bhuvan renders slowly or not at all. Raise if tiles still
+        // come back empty/slow at 8 in production.
+        minZoom: 8,
         attribution: "ISRO / NRSC Bhuvan"
     }
 };
@@ -439,7 +620,7 @@ Object.entries(overlayConfigs).forEach(([name, config]) => {
     toggle.addEventListener("change", function () {
         if (!this.checked) {
             if (layer && map.hasLayer(layer)) map.removeLayer(layer);
-            updateStatus(`${config.label} hidden`);
+            setZoomFloor(name, null);
             return;
         }
 
@@ -454,17 +635,14 @@ Object.entries(overlayConfigs).forEach(([name, config]) => {
                 attribution: config.attribution
             });
 
-            layer.on("load", () => updateStatus(`${config.label} active`));
-            layer.on("tileerror", () => updateStatus(`Error loading ${config.label}`));
+            watchTileLayer(layer, name, config.label);
         }
 
-        // Same idea as the imagery layers: don't leave the user zoomed
-        // out where this overlay draws nothing.
-        if (map.getZoom() < config.minZoom) {
-            map.setZoom(config.minZoom);
-        }
+        // Same as the imagery layers: zoom in if needed and keep the map
+        // from zooming out past this overlay's minZoom while it is on.
+        setZoomFloor(name, config.minZoom);
 
-        updateStatus(`Loading ${config.label}...`);
+        setLayerStatus(name, `Loading ${config.label}...`);
         layer.addTo(map);
     });
 });
@@ -539,16 +717,16 @@ map.on(L.Draw.Event.CREATED, (event) => {
         .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
         .then(({ ok, data }) => {
             if (!ok) {
-                updateStatus(data.error || "Could not save drawing.");
+                notify(data.error || "Could not save drawing.");
                 return;
             }
 
             layerToFileId.set(layer, data.id);
             bindDrawingPopup(layer, data.id, data.name);
-            updateStatus(`Saved "${data.name}" as KML.`);
+            notify(`Saved "${data.name}" as KML.`);
             refreshDrawingsList();
         })
-        .catch(() => updateStatus("Could not reach the server to save the drawing."));
+        .catch(() => notify("Could not reach the server to save the drawing."));
 });
 
 // An existing shape was edited on the map: push the new geometry to disk.
@@ -563,8 +741,8 @@ map.on(L.Draw.Event.EDITED, (event) => {
             body: JSON.stringify({ features: layerToGeoJSONFeatures(layer) })
         })
             .then((response) => response.json())
-            .then(() => updateStatus("Drawing updated."))
-            .catch(() => updateStatus("Could not save the edited drawing."));
+            .then(() => notify("Drawing updated."))
+            .catch(() => notify("Could not save the edited drawing."));
     });
 });
 
@@ -576,10 +754,10 @@ map.on(L.Draw.Event.DELETED, (event) => {
 
         fetch(`/api/kml/${fileId}`, { method: "DELETE" })
             .then(() => {
-                updateStatus("Drawing deleted.");
+                notify("Drawing deleted.");
                 refreshDrawingsList();
             })
-            .catch(() => updateStatus("Could not delete the drawing on the server."));
+            .catch(() => notify("Could not delete the drawing on the server."));
     });
 });
 
@@ -670,7 +848,7 @@ function renderDrawingsList(items) {
 }
 
 function loadDrawing(fileId) {
-    updateStatus("Loading drawing...");
+    notify("Loading drawing...");
 
     fetch(`/api/kml/${fileId}`)
         .then((response) => response.text())
@@ -693,9 +871,9 @@ function loadDrawing(fileId) {
                 map.fitBounds(group.getBounds(), { maxZoom: 15 });
             }
 
-            updateStatus("Drawing loaded.");
+            notify("Drawing loaded.");
         })
-        .catch(() => updateStatus("Could not load the drawing."));
+        .catch(() => notify("Could not load the drawing."));
 }
 
 function renameDrawing(fileId, currentName) {
@@ -713,14 +891,14 @@ function renameDrawing(fileId, currentName) {
         .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
         .then(({ ok, data }) => {
             if (!ok) {
-                updateStatus(data.error || "Could not rename drawing.");
+                notify(data.error || "Could not rename drawing.");
                 return;
             }
 
-            updateStatus(`Renamed to "${data.name}".`);
+            notify(`Renamed to "${data.name}".`);
             refreshDrawingsList();
         })
-        .catch(() => updateStatus("Could not reach the server to rename the drawing."));
+        .catch(() => notify("Could not reach the server to rename the drawing."));
 }
 
 function deleteDrawing(fileId) {
@@ -737,10 +915,10 @@ function deleteDrawing(fileId) {
                 }
             });
 
-            updateStatus("Drawing deleted.");
+            notify("Drawing deleted.");
             refreshDrawingsList();
         })
-        .catch(() => updateStatus("Could not delete the drawing."));
+        .catch(() => notify("Could not delete the drawing."));
 }
 
 // --------------------------------------------------

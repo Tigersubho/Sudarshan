@@ -8,8 +8,10 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    # One worker + threads: the free plan has 512 MB of RAM.
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 90
+    # One worker + threads: the free plan has 512 MB of RAM. Tile requests
+    # mostly wait on upstream servers, so 8 threads keep one slow source
+    # (e.g. Bhuvan) from blocking every other layer's tiles.
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 90
     healthCheckPath: /healthz
     envVars:
       - key: PYTHON_VERSION

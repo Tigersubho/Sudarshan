@@ -31,6 +31,16 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# One pooled HTTP session for every upstream call: tiles reuse TCP/TLS
+# connections instead of opening a new one per tile.
+http = requests.Session()
+http.mount("https://", requests.adapters.HTTPAdapter(pool_maxsize=16))
+
+# (connect, read) seconds. A tile the browser already abandoned (zoomed
+# away) still holds a server thread until its upstream call returns, so
+# keep this well below the old 60 s.
+TILE_TIMEOUT = (5, 25)
+
 # --------------------------------------------------
 # OPTIONAL PASSWORD (set APP_PASSWORD in the environment when deployed)
 # --------------------------------------------------
@@ -112,6 +122,7 @@ WMS_URL = (
 
 access_token = None
 token_expiry = 0
+_token_lock = threading.Lock()
 
 
 # --------------------------------------------------
@@ -141,12 +152,22 @@ def get_access_token():
     if access_token and time.time() < token_expiry:
         return access_token
 
+    with _token_lock:  # one refresh, not one per concurrent tile
+        if access_token and time.time() < token_expiry:
+            return access_token
+
+        return _fetch_access_token()
+
+
+def _fetch_access_token():
+    global access_token, token_expiry
+
     if not CLIENT_ID or not CLIENT_SECRET:
         raise RuntimeError(
             "Missing Sentinel Hub OAuth credentials in .env"
         )
 
-    response = requests.post(
+    response = http.post(
         TOKEN_URL,
         data={
             "grant_type": "client_credentials",
@@ -235,13 +256,13 @@ def wms_proxy():
             "LAYERS": requested_layer
         })
 
-        response = requests.get(
+        response = http.get(
             WMS_URL,
             params=params,
             headers={
                 "Authorization": f"Bearer {token}"
             },
-            timeout=60
+            timeout=TILE_TIMEOUT
         )
 
         content_type = response.headers.get(
@@ -285,7 +306,7 @@ def capabilities():
     try:
         token = get_access_token()
 
-        response = requests.get(
+        response = http.get(
             WMS_URL,
             params={
                 "SERVICE": "WMS",
@@ -367,6 +388,16 @@ def _png_response(content, status=200):
     )
 
 
+def _tile_error(message):
+    """Upstream failure: never cached, so the browser's retry (and any
+    later visit) asks again instead of reusing a blank tile for an hour."""
+
+    response = jsonify({"error": message})
+    response.status_code = 502
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.route("/api/overlay/<name>")
 def overlay_proxy(name):
     source = OVERLAY_SOURCES.get(name)
@@ -388,7 +419,7 @@ def overlay_proxy(name):
     })
 
     try:
-        response = requests.get(source["url"], params=params, timeout=60)
+        response = http.get(source["url"], params=params, timeout=TILE_TIMEOUT)
 
         content_type = response.headers.get("Content-Type", "")
 
@@ -399,13 +430,13 @@ def overlay_proxy(name):
                 "Overlay %s upstream problem: %s %s",
                 name, response.status_code, response.text[:200]
             )
-            return _png_response(TRANSPARENT_PNG)
+            return _tile_error("Overlay source returned an error.")
 
         return _png_response(response.content)
 
     except requests.RequestException:
         app.logger.exception("Overlay %s request failed", name)
-        return jsonify({"error": "Could not retrieve overlay."}), 502
+        return _tile_error("Could not retrieve overlay.")
 
 
 # --------------------------------------------------
@@ -436,16 +467,20 @@ _lband_lock = threading.Lock()
 LBAND_SEARCH_TTL = 6 * 3600
 
 
-def _lband_search_id(year, force_refresh=False):
-    """Register (once per year, then cache) a mosaic search for that year."""
+def _lband_search_id(year, stale_id=None):
+    """Register (once per year, then cache) a mosaic search for that year.
+
+    stale_id: an id that just failed upstream. Only the first thread that
+    reports it re-registers; the others get the fresh id it stored.
+    """
 
     with _lband_lock:
         cached = _lband_searches.get(year)
 
-        if cached and not force_refresh and time.time() < cached[1]:
+        if cached and cached[0] != stale_id and time.time() < cached[1]:
             return cached[0]
 
-        response = requests.post(
+        response = http.post(
             f"{PC_MOSAIC_BASE}/register",
             json={
                 "filter-lang": "cql2-json",
@@ -490,14 +525,16 @@ def lband_tile(z, x, y):
         return _png_response(TRANSPARENT_PNG)
 
     try:
-        for attempt in (0, 1):
-            search_id = _lband_search_id(year, force_refresh=bool(attempt))
+        search_id = None
 
-            response = requests.get(
+        for attempt in (0, 1):
+            search_id = _lband_search_id(year, stale_id=search_id)
+
+            response = http.get(
                 f"{PC_MOSAIC_BASE}/{search_id}/tiles/WebMercatorQuad/"
                 f"{z}/{x}/{y}@1x",
                 params=LBAND_RENDER_PARAMS,
-                timeout=60
+                timeout=TILE_TIMEOUT
             )
 
             # A cached search id can expire server-side; re-register once.
@@ -519,11 +556,11 @@ def lband_tile(z, x, y):
             "L-band upstream problem: %s %s",
             response.status_code, response.text[:200]
         )
-        return jsonify({"error": "L-band tile unavailable."}), 502
+        return _tile_error("L-band tile unavailable.")
 
     except requests.RequestException:
         app.logger.exception("L-band tile request failed")
-        return jsonify({"error": "Could not retrieve L-band imagery."}), 502
+        return _tile_error("Could not retrieve L-band imagery.")
 
 
 # --------------------------------------------------

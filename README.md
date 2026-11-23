@@ -13,9 +13,17 @@ lines) that are saved to disk as KML files.
 - Draw polygons and lines directly on the map (Leaflet.draw toolbar).
 - Drawings are saved, loaded, renamed, edited and deleted as `.kml`
   files on the server (`data/kml/`) — no database required.
-- Auto-zoom: selecting any WMS layer automatically zooms the map in
-  to the minimum zoom that layer needs, so imagery doesn't come back
-  blank when you're zoomed far out.
+- Auto-zoom: switching on any layer zooms the map in to the minimum zoom
+  that layer needs, and while it is on the map can't zoom out past the
+  highest minimum among the layers that are on. Selected layers never
+  silently disappear, whatever the combination.
+- Each layer reports its own state in the status bar, including how much
+  of the current view has loaded ("loading 66% of view..."). Failed tiles
+  are retried twice and never cached.
+- Viewport watcher: after every pan/zoom and every 8 s, the app checks
+  that every tile of every layer in view is actually shown and requests
+  the missing ones again, so gaps fill in by themselves once a data source
+  recovers.
 - L-band SAR (ALOS PALSAR-2), plus Structure Map (GSI faults/thrusts)
   and Lineament Map (Bhuvan) overlays, all from free public sources.
 - Survey of India toposheet grid overlay showing real sheet numbers
@@ -98,6 +106,7 @@ toposheet.py            SoI toposheet index: download, cache, bbox query
 templates/index.html    Main viewer page
 static/js/main.js       Map, layer switching, drawing tools, KML panel
 static/css/style.css    Styling
+tests/test_app.py       Proxy tests (python -m unittest discover tests)
 data/kml/                Saved drawings, one .kml file per drawing
 data/toposheet/          Auto-downloaded toposheet index (git-ignored)
 last.py, last.html,
@@ -119,13 +128,13 @@ static/*/last.*          Earlier prototype of the viewer (not served
 | Toposheet Grid (overlay) | Survey of India 1:50K sheet index | Checkbox; shows on top of any layer |
 | L_BAND_PALSAR | ALOS PALSAR-2 annual mosaic (JAXA) via Microsoft Planetary Computer | 25 m, HH/HV false color, year 2021, zoom ≥ 8 |
 | Structure Map (overlay) | GSI faults & thrusts 1:2M, hosted by BGS | Checkbox; regional scale |
-| Lineament Map (overlay) | ISRO/NRSC Bhuvan 1:50K | Checkbox; Assam, Arunachal, Meghalaya, Manipur, Nagaland, Tripura, Sikkim (no Mizoram) |
+| Lineament Map (overlay) | ISRO/NRSC Bhuvan 1:50K | Checkbox, zoom ≥ 8; Assam, Arunachal, Meghalaya, Manipur, Nagaland, Tripura, Sikkim (no Mizoram) |
 
 Each Sentinel Hub collection has its own resolution limit, so each
 layer has its own minimum zoom (`availableLayers` in
 `static/js/main.js`): Sentinel-1 needs zoom 7 and Sentinel-2 layers
-need zoom 10. Selecting a layer while zoomed out further than its
-minimum automatically zooms the map in.
+need zoom 10. Overlays have minimums too (structure 4, lineament 8).
+The map's minimum zoom follows the layers that are on (`setZoomFloor`).
 
 ### Other API routes
 
